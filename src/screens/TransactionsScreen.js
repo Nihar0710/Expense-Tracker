@@ -1,242 +1,387 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  SafeAreaView,
-  Modal,
-  TextInput,
-  ScrollView,
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  Modal, TextInput, ScrollView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useWallet } from '../context/WalletContext';
-import { CATEGORIES, getCategoryMeta } from '../constants/categories';
+import { useTheme } from '../context/ThemeContext';
+import { buildCategoryList, getCategoryMeta } from '../constants/categories';
 import ConfirmPaymentSheet from '../components/ConfirmPaymentSheet';
+import { exportTransactionsCSV } from '../utils/csvExport';
+import { spacing, fontSize, radius, useTabBarHeight, rs } from '../utils/layout';
 
 export default function TransactionsScreen({ route }) {
-  const { transactions, confirmPayment, discardPayment, addManual } = useWallet();
-  const [filter, setFilter] = useState(route?.params?.filterStatus || 'all');
-  const [addModalVisible, setAddModalVisible] = useState(false);
-  const [sheetTransaction, setSheetTransaction] = useState(null);
+  const { searchTx, confirmPayment, discardPayment, addManual, customCategories } = useWallet();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const bottomPad = useTabBarHeight();
 
-  const filtered = useMemo(() => {
-    if (filter === 'all') return transactions;
-    return transactions.filter((t) => t.status === filter);
-  }, [transactions, filter]);
+  const allCategories = buildCategoryList(customCategories);
+
+  const [search, setSearch]                 = useState('');
+  const [statusFilter, setStatusFilter]     = useState(route?.params?.filterStatus || 'all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [results, setResults]               = useState([]);
+  const [addModalVisible, setAddModal]      = useState(false);
+  const [sheetTx, setSheetTx]               = useState(null);
+  const debounceRef = useRef(null);
+
+  const runSearch = useCallback(
+    async (q, status, category) => {
+      const rows = await searchTx({ search: q, status, category });
+      setResults(rows);
+    },
+    [searchTx]
+  );
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      runSearch(search, statusFilter, categoryFilter);
+    }, 300);
+    return () => clearTimeout(debounceRef.current);
+  }, [search, statusFilter, categoryFilter, runSearch]);
+
+  const handleExport = async () => {
+    if (results.length === 0) {
+      Alert.alert('Nothing to export', 'No transactions match the current filters.');
+      return;
+    }
+    try { await exportTransactionsCSV(results); }
+    catch (e) { Alert.alert('Export failed', e.message); }
+  };
+
+  const s = makeStyles(colors, insets);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Transactions</Text>
-        <TouchableOpacity onPress={() => setAddModalVisible(true)}>
-          <Ionicons name="add-circle" size={28} color="#111827" />
-        </TouchableOpacity>
+    <View style={s.container}>
+      {/* Header */}
+      <View style={s.header}>
+        <Text style={s.title}>Transactions</Text>
+        <View style={s.headerIcons}>
+          <TouchableOpacity onPress={handleExport} style={s.iconBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="share-outline" size={rs(22)} color={colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setAddModal(true)} style={s.iconBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="add-circle" size={rs(26)} color={colors.text} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <View style={styles.filterRow}>
+      {/* Search */}
+      <View style={s.searchRow}>
+        <Ionicons name="search" size={rs(15)} color={colors.textHint} style={{ marginRight: spacing.sm }} />
+        <TextInput
+          style={s.searchInput}
+          placeholder="Search payee, note, UPI ID…"
+          placeholderTextColor={colors.textHint}
+          value={search}
+          onChangeText={setSearch}
+          autoCapitalize="none"
+          returnKeyType="search"
+        />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close-circle" size={rs(16)} color={colors.textHint} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Filter chips */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={s.filterScroll}
+        contentContainerStyle={s.filterContent}
+      >
         {['all', 'pending', 'confirmed'].map((f) => (
           <TouchableOpacity
             key={f}
-            style={[styles.filterChip, filter === f && styles.filterChipActive]}
-            onPress={() => setFilter(f)}
+            style={[s.chip, statusFilter === f && s.chipActive]}
+            onPress={() => setStatusFilter(f)}
           >
-            <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
+            <Text style={[s.chipText, statusFilter === f && s.chipTextActive]}>
               {f.charAt(0).toUpperCase() + f.slice(1)}
             </Text>
           </TouchableOpacity>
         ))}
-      </View>
+        <View style={s.chipDivider} />
+        {['all', ...allCategories.map((c) => c.name)].map((cat) => (
+          <TouchableOpacity
+            key={cat}
+            style={[s.chip, categoryFilter === cat && s.chipActive]}
+            onPress={() => setCategoryFilter(cat)}
+          >
+            <Text style={[s.chipText, categoryFilter === cat && s.chipTextActive]}>
+              {cat === 'all' ? 'All categories' : cat}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
       <FlatList
-        data={filtered}
+        data={results}
         keyExtractor={(item) => String(item.id)}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: bottomPad, paddingHorizontal: spacing.lg }}
         renderItem={({ item }) => (
-          <TransactionCard item={item} onPress={() => item.status === 'pending' && setSheetTransaction(item)} />
+          <TransactionCard
+            item={item}
+            colors={colors}
+            customCategories={customCategories}
+            onPress={() => item.status === 'pending' && setSheetTx(item)}
+          />
         )}
-        ListEmptyComponent={<Text style={styles.emptyText}>Nothing here yet.</Text>}
-        contentContainerStyle={{ paddingBottom: 20 }}
+        ListEmptyComponent={<Text style={s.emptyText}>Nothing here yet.</Text>}
       />
 
       <ConfirmPaymentSheet
-        visible={!!sheetTransaction}
-        transaction={sheetTransaction}
-        onConfirm={async (id, category) => {
-          await confirmPayment(id, category);
-          setSheetTransaction(null);
+        visible={!!sheetTx}
+        transaction={sheetTx}
+        onConfirm={async (id, cat) => {
+          await confirmPayment(id, cat);
+          setSheetTx(null);
+          runSearch(search, statusFilter, categoryFilter);
         }}
         onDiscard={async (id) => {
           await discardPayment(id);
-          setSheetTransaction(null);
+          setSheetTx(null);
+          runSearch(search, statusFilter, categoryFilter);
         }}
       />
 
       <AddTransactionModal
         visible={addModalVisible}
-        onClose={() => setAddModalVisible(false)}
+        colors={colors}
+        insets={insets}
+        allCategories={allCategories}
+        onClose={() => setAddModal(false)}
         onSave={async (data) => {
           await addManual(data);
-          setAddModalVisible(false);
+          setAddModal(false);
+          runSearch(search, statusFilter, categoryFilter);
         }}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
-function TransactionCard({ item, onPress }) {
-  const meta = getCategoryMeta(item.category);
+// ─── Transaction card ─────────────────────────────────────────────────────────
+
+function TransactionCard({ item, colors, customCategories, onPress }) {
+  const meta = getCategoryMeta(item.category, customCategories);
   const isExpense = item.type === 'expense';
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} disabled={item.status !== 'pending'}>
-      <View style={[styles.iconCircle, { backgroundColor: meta.color + '22' }]}>
-        <Ionicons name={meta.icon} size={18} color={meta.color} />
+    <TouchableOpacity
+      style={[cardStyle.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+      onPress={onPress}
+      activeOpacity={item.status === 'pending' ? 0.7 : 1}
+      disabled={item.status !== 'pending'}
+    >
+      <View style={[cardStyle.iconCircle, { backgroundColor: meta.color + '22' }]}>
+        <Ionicons name={meta.icon} size={rs(17)} color={meta.color} />
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.cardTitle}>{item.payee_name || item.note || item.category}</Text>
-        <Text style={styles.cardSubtitle}>
-          {new Date(item.created_at).toLocaleString()} {item.status === 'pending' ? '· Tap to confirm' : ''}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={[cardStyle.title, { color: colors.text }]} numberOfLines={1}>
+          {item.payee_name || item.note || item.category}
+        </Text>
+        <Text style={[cardStyle.sub, { color: colors.textFaint }]} numberOfLines={1}>
+          {new Date(item.created_at).toLocaleString()}
+          {item.status === 'pending' ? ' · Tap to confirm' : ''}
         </Text>
       </View>
-      <Text style={[styles.cardAmount, { color: isExpense ? '#EF4444' : '#22C55E' }]}>
+      <Text style={[cardStyle.amount, { color: isExpense ? colors.danger : colors.success }]}>
         {isExpense ? '-' : '+'}₹{Number(item.amount).toFixed(2)}
       </Text>
     </TouchableOpacity>
   );
 }
 
-function AddTransactionModal({ visible, onClose, onSave }) {
-  const [type, setType] = useState('expense');
-  const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState('Other');
-  const [note, setNote] = useState('');
+const cardStyle = StyleSheet.create({
+  card:       { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.lg, marginBottom: spacing.sm, borderWidth: StyleSheet.hairlineWidth },
+  iconCircle: { width: rs(40), height: rs(40), borderRadius: rs(20), alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  title:      { fontSize: fontSize.md, fontWeight: '600' },
+  sub:        { fontSize: fontSize.xs, marginTop: 2 },
+  amount:     { fontSize: fontSize.md, fontWeight: '700', flexShrink: 0 },
+});
+
+// ─── Add transaction modal ────────────────────────────────────────────────────
+
+function AddTransactionModal({ visible, colors, insets, allCategories, onClose, onSave }) {
+  const { addCustomCategory } = useWallet();
+  const [type, setType]               = useState('expense');
+  const [amount, setAmount]           = useState('');
+  const [category, setCategory]       = useState('Other');
+  const [customLabel, setCustomLabel] = useState('');
+  const [note, setNote]               = useState('');
+  const s = modalStyles(colors, insets);
 
   const reset = () => {
-    setType('expense');
-    setAmount('');
-    setCategory('Other');
-    setNote('');
+    setType('expense'); setAmount(''); setCategory('Other');
+    setCustomLabel(''); setNote('');
+  };
+
+  const isOther = category === 'Other';
+
+  const handleSave = async () => {
+    if (!amount || Number(amount) <= 0) return;
+    if (isOther && !customLabel.trim()) {
+      Alert.alert('Category required', 'Please describe the "Other" category.');
+      return;
+    }
+    const finalCategory = isOther ? customLabel.trim() : category;
+    if (isOther && customLabel.trim()) {
+      await addCustomCategory(customLabel.trim());
+    }
+    onSave({ type, amount: Number(amount), category: finalCategory, note });
+    reset();
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalSheet}>
-          <Text style={styles.modalTitle}>Add transaction</Text>
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={s.overlay}>
+          <View style={s.sheet}>
+            <View style={s.handle} />
+            <Text style={s.title}>Add transaction</Text>
 
-          <View style={styles.typeRow}>
-            {['expense', 'income'].map((t) => (
-              <TouchableOpacity
-                key={t}
-                style={[styles.typeChip, type === t && styles.typeChipActive]}
-                onPress={() => setType(t)}
-              >
-                <Text style={[styles.typeText, type === t && styles.typeTextActive]}>
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </Text>
+            <View style={s.typeRow}>
+              {['expense', 'income'].map((t) => (
+                <TouchableOpacity
+                  key={t}
+                  style={[s.typeChip, type === t && s.typeChipActive]}
+                  onPress={() => setType(t)}
+                >
+                  <Text style={[s.typeText, type === t && s.typeTextActive]}>
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              style={s.input}
+              placeholder="Amount"
+              placeholderTextColor={colors.textHint}
+              keyboardType="decimal-pad"
+              value={amount}
+              onChangeText={setAmount}
+            />
+            <TextInput
+              style={s.input}
+              placeholder="Note (optional)"
+              placeholderTextColor={colors.textHint}
+              value={note}
+              onChangeText={setNote}
+            />
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: spacing.sm }}>
+              {allCategories.map((c) => (
+                <TouchableOpacity
+                  key={c.name}
+                  style={[s.chip, category === c.name && { backgroundColor: c.color }]}
+                  onPress={() => { setCategory(c.name); setCustomLabel(''); }}
+                >
+                  <Text style={[s.chipText, category === c.name && { color: '#fff' }]}>{c.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {isOther && (
+              <TextInput
+                style={[s.input, s.customInput, !customLabel.trim() && s.customInputError]}
+                placeholder="Name this category — it'll be saved for later"
+                placeholderTextColor={colors.textHint}
+                value={customLabel}
+                onChangeText={setCustomLabel}
+                returnKeyType="done"
+              />
+            )}
+
+            <View style={s.btnRow}>
+              <TouchableOpacity style={[s.btn, s.cancelBtn]} onPress={() => { reset(); onClose(); }}>
+                <Text style={s.cancelText}>Cancel</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-
-          <TextInput
-            style={styles.modalInput}
-            placeholder="Amount"
-            keyboardType="decimal-pad"
-            value={amount}
-            onChangeText={setAmount}
-          />
-          <TextInput
-            style={styles.modalInput}
-            placeholder="Note (optional)"
-            value={note}
-            onChangeText={setNote}
-          />
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 12 }}>
-            {CATEGORIES.map((c) => (
-              <TouchableOpacity
-                key={c.name}
-                style={[styles.chip, category === c.name && { backgroundColor: c.color }]}
-                onPress={() => setCategory(c.name)}
-              >
-                <Text style={[styles.chipText, category === c.name && { color: '#fff' }]}>{c.name}</Text>
+              <TouchableOpacity style={[s.btn, s.saveBtn]} onPress={handleSave}>
+                <Text style={s.saveText}>Save</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          <View style={styles.modalButtonRow}>
-            <TouchableOpacity
-              style={[styles.modalButton, styles.cancelButton]}
-              onPress={() => {
-                reset();
-                onClose();
-              }}
-            >
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modalButton, styles.saveButton]}
-              onPress={() => {
-                if (!amount || Number(amount) <= 0) return;
-                onSave({ type, amount: Number(amount), category, note });
-                reset();
-              }}
-            >
-              <Text style={styles.saveText}>Save</Text>
-            </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB', paddingHorizontal: 16 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 },
-  title: { fontSize: 20, fontWeight: '700', color: '#111827' },
-  filterRow: { flexDirection: 'row', gap: 8, marginVertical: 12 },
-  filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F3F4F6' },
-  filterChipActive: { backgroundColor: '#111827' },
-  filterText: { fontSize: 13, color: '#374151', fontWeight: '500' },
-  filterTextActive: { color: '#fff' },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#fff',
-    padding: 14,
-    borderRadius: 14,
-    marginBottom: 10,
-  },
-  iconCircle: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  cardTitle: { fontSize: 14, fontWeight: '600', color: '#111827' },
-  cardSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 2 },
-  cardAmount: { fontSize: 14, fontWeight: '700' },
-  emptyText: { textAlign: 'center', color: '#9CA3AF', marginTop: 40 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 16 },
-  typeRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  typeChip: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: '#F3F4F6', alignItems: 'center' },
-  typeChipActive: { backgroundColor: '#111827' },
-  typeText: { fontWeight: '600', color: '#374151' },
-  typeTextActive: { color: '#fff' },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    marginBottom: 10,
-  },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F3F4F6', marginRight: 8 },
-  chipText: { fontSize: 13, color: '#374151', fontWeight: '500' },
-  modalButtonRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  modalButton: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
-  cancelButton: { backgroundColor: '#F3F4F6' },
-  saveButton: { backgroundColor: '#111827' },
-  cancelText: { color: '#374151', fontWeight: '600' },
-  saveText: { color: '#fff', fontWeight: '600' },
-});
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+function makeStyles(c, insets) {
+  return StyleSheet.create({
+    container:      {
+      flex: 1, backgroundColor: c.bg,
+      paddingTop: insets.top,
+      paddingLeft: insets.left,
+      paddingRight: insets.right,
+    },
+    header:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.sm },
+    title:          { fontSize: fontSize.xl, fontWeight: '700', color: c.text },
+    headerIcons:    { flexDirection: 'row', gap: spacing.sm },
+    iconBtn:        { padding: spacing.xs },
+    searchRow:      {
+      flexDirection: 'row', alignItems: 'center',
+      backgroundColor: c.card, borderRadius: radius.md,
+      paddingHorizontal: spacing.md, marginHorizontal: spacing.lg,
+      borderWidth: StyleSheet.hairlineWidth, borderColor: c.border,
+      minHeight: rs(44),
+    },
+    searchInput:    { flex: 1, paddingVertical: spacing.sm, fontSize: fontSize.md, color: c.text },
+    filterScroll:   { flexGrow: 0, marginTop: spacing.sm },
+    filterContent:  { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, gap: spacing.sm, flexDirection: 'row' },
+    chip:           { paddingHorizontal: spacing.md, paddingVertical: spacing.sm - 1, borderRadius: radius.full, backgroundColor: c.cardAlt },
+    chipActive:     { backgroundColor: c.accent },
+    chipText:       { fontSize: fontSize.sm, color: c.textMuted, fontWeight: '500' },
+    chipTextActive: { color: c.accentText },
+    chipDivider:    { width: 1, backgroundColor: c.border, marginHorizontal: spacing.xs, alignSelf: 'stretch' },
+    emptyText:      { textAlign: 'center', color: c.textHint, marginTop: spacing.xxl * 2 },
+  });
+}
+
+function modalStyles(c, insets) {
+  return StyleSheet.create({
+    overlay:         { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    sheet:           {
+      backgroundColor: c.card,
+      borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl,
+      padding: spacing.xxl,
+      paddingBottom: Math.max(spacing.xxl, (insets?.bottom ?? 0) + spacing.lg),
+    },
+    handle:          { width: rs(40), height: rs(4), borderRadius: rs(2), backgroundColor: c.border, alignSelf: 'center', marginBottom: spacing.lg },
+    title:           { fontSize: fontSize.lg, fontWeight: '700', color: c.text, marginBottom: spacing.lg },
+    typeRow:         { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+    typeChip:        { flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: c.cardAlt, alignItems: 'center' },
+    typeChipActive:  { backgroundColor: c.accent },
+    typeText:        { fontWeight: '600', color: c.textMuted, fontSize: fontSize.md },
+    typeTextActive:  { color: c.accentText },
+    input:           {
+      borderWidth: 1, borderColor: c.border, borderRadius: radius.md,
+      paddingHorizontal: spacing.md, paddingVertical: spacing.md,
+      fontSize: fontSize.base, marginBottom: spacing.sm, color: c.text,
+      minHeight: rs(48),
+    },
+    chip:            { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.full, backgroundColor: c.cardAlt, marginRight: spacing.sm },
+    chipText:        { fontSize: fontSize.sm, color: c.textMuted, fontWeight: '500' },
+    customInput:     { borderColor: c.accent, borderWidth: 1.5, marginTop: spacing.xs },
+    customInputError:{ borderColor: c.danger },
+    btnRow:          { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
+    btn:             { flex: 1, paddingVertical: spacing.md, borderRadius: radius.lg, alignItems: 'center', minHeight: rs(50) },
+    cancelBtn:       { backgroundColor: c.cardAlt },
+    saveBtn:         { backgroundColor: c.accent },
+    cancelText:      { color: c.textMuted, fontWeight: '600', fontSize: fontSize.base },
+    saveText:        { color: c.accentText, fontWeight: '600', fontSize: fontSize.base },
+  });
+}

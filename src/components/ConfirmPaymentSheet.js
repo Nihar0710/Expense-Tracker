@@ -1,66 +1,97 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { CATEGORIES } from '../constants/categories';
+import { Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { buildCategoryList } from '../constants/categories';
+import { useTheme } from '../context/ThemeContext';
+import { useWallet } from '../context/WalletContext';
+import { spacing, fontSize, radius, rs } from '../utils/layout';
 
-/**
- * Shown right after the user returns from a UPI app (GPay/PhonePe/etc).
- * We can't know for certain the payment succeeded, so we ask.
- */
 export default function ConfirmPaymentSheet({ visible, transaction, onConfirm, onDiscard }) {
+  const { colors } = useTheme();
+  const { customCategories, addCustomCategory } = useWallet();
+  const insets = useSafeAreaInsets();
   const [category, setCategory] = useState('Other');
+  const [customLabel, setCustomLabel] = useState('');
 
-  // Reset category picker whenever a new transaction is shown
-  useEffect(() => {
-    setCategory('Other');
-  }, [transaction?.id]);
+  useEffect(() => { setCategory('Other'); setCustomLabel(''); }, [transaction?.id]);
 
   if (!transaction) return null;
 
+  const isOther = category === 'Other';
+  const allCategories = buildCategoryList(customCategories);
+
+  const handleConfirm = async () => {
+    if (isOther && !customLabel.trim()) {
+      Alert.alert('Category required', 'Please describe the "Other" category before confirming.');
+      return;
+    }
+    const finalCategory = isOther ? customLabel.trim() : category;
+    // If it's a custom label, save it as a new category for future use
+    if (isOther && customLabel.trim()) {
+      await addCustomCategory(customLabel.trim());
+    }
+    onConfirm(transaction.id, finalCategory);
+  };
+
+  const s = makeStyles(colors, insets);
+
   return (
-    <Modal visible={visible} transparent animationType="slide">
-      <View style={styles.overlay}>
-        <View style={styles.sheet}>
-          <Text style={styles.title}>Did this payment go through?</Text>
-          <Text style={styles.amount}>₹{Number(transaction.amount).toFixed(2)}</Text>
-          <Text style={styles.payee}>
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent>
+      <View style={s.overlay}>
+        <View style={s.sheet}>
+          <View style={s.handle} />
+          <Text style={s.title}>Did this payment go through?</Text>
+          <Text style={s.amount}>₹{Number(transaction.amount).toFixed(2)}</Text>
+          <Text style={s.payee}>
             to {transaction.payee_name || transaction.upi_id || 'UPI payee'}
           </Text>
 
-          <Text style={styles.label}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-            {CATEGORIES.map((c) => (
+          <Text style={s.label}>Category</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={s.chipRow}
+            contentContainerStyle={{ gap: spacing.sm }}
+          >
+            {allCategories.map((c) => (
               <TouchableOpacity
                 key={c.name}
-                style={[
-                  styles.chip,
-                  category === c.name && { backgroundColor: c.color },
-                ]}
-                onPress={() => setCategory(c.name)}
+                style={[s.chip, category === c.name && { backgroundColor: c.color }]}
+                onPress={() => { setCategory(c.name); setCustomLabel(''); }}
               >
-                <Text
-                  style={[
-                    styles.chipText,
-                    category === c.name && styles.chipTextActive,
-                  ]}
-                >
+                <Text style={[s.chipText, category === c.name && s.chipTextActive]}>
                   {c.name}
                 </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
 
-          <View style={styles.buttonRow}>
+          {isOther && (
+            <TextInput
+              style={[s.customInput, !customLabel.trim() && s.customInputError]}
+              placeholder="Name this category — it'll be saved for later"
+              placeholderTextColor={colors.textHint}
+              value={customLabel}
+              onChangeText={setCustomLabel}
+              autoFocus
+              returnKeyType="done"
+            />
+          )}
+
+          <View style={s.buttonRow}>
             <TouchableOpacity
-              style={[styles.button, styles.discardButton]}
+              style={[s.button, s.discardButton]}
               onPress={() => onDiscard(transaction.id)}
+              activeOpacity={0.75}
             >
-              <Text style={styles.discardText}>No, discard</Text>
+              <Text style={s.discardText}>No, discard</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.button, styles.confirmButton]}
-              onPress={() => onConfirm(transaction.id, category)}
+              style={[s.button, s.confirmButton]}
+              onPress={handleConfirm}
+              activeOpacity={0.8}
             >
-              <Text style={styles.confirmText}>Yes, track it</Text>
+              <Text style={s.confirmText}>Yes, track it</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -69,42 +100,36 @@ export default function ConfirmPaymentSheet({ visible, transaction, onConfirm, o
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-  },
-  title: { fontSize: 16, fontWeight: '600', color: '#111827', textAlign: 'center' },
-  amount: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#111827',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  payee: { fontSize: 14, color: '#6B7280', textAlign: 'center', marginTop: 4, marginBottom: 20 },
-  label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 8 },
-  chipRow: { marginBottom: 24 },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-    marginRight: 8,
-  },
-  chipText: { fontSize: 13, color: '#374151', fontWeight: '500' },
-  chipTextActive: { color: '#fff' },
-  buttonRow: { flexDirection: 'row', gap: 12 },
-  button: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
-  discardButton: { backgroundColor: '#F3F4F6' },
-  confirmButton: { backgroundColor: '#111827' },
-  discardText: { color: '#374151', fontWeight: '600' },
-  confirmText: { color: '#fff', fontWeight: '600' },
-});
+function makeStyles(c, insets) {
+  return StyleSheet.create({
+    overlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    sheet:         {
+      backgroundColor: c.card,
+      borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl,
+      padding: spacing.xxl,
+      paddingBottom: Math.max(spacing.xxl, (insets?.bottom ?? 0) + spacing.lg),
+    },
+    handle:        { width: rs(40), height: rs(4), borderRadius: rs(2), backgroundColor: c.border, alignSelf: 'center', marginBottom: spacing.lg },
+    title:         { fontSize: fontSize.lg, fontWeight: '600', color: c.text, textAlign: 'center' },
+    amount:        { fontSize: rs(34), fontWeight: '700', color: c.text, textAlign: 'center', marginTop: spacing.sm },
+    payee:         { fontSize: fontSize.md, color: c.textFaint, textAlign: 'center', marginTop: spacing.xs, marginBottom: spacing.xl },
+    label:         { fontSize: fontSize.sm, fontWeight: '600', color: c.textMuted, marginBottom: spacing.sm },
+    chipRow:        { marginBottom: spacing.md },
+    chip:           { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.full, backgroundColor: c.cardAlt },
+    chipText:       { fontSize: fontSize.sm, color: c.textMuted, fontWeight: '500' },
+    chipTextActive: { color: '#fff' },
+    customInput:    {
+      borderWidth: 1.5, borderColor: c.accent, borderRadius: radius.md,
+      paddingHorizontal: spacing.md, paddingVertical: spacing.md,
+      fontSize: fontSize.base, color: c.text, marginBottom: spacing.lg,
+      minHeight: rs(48),
+    },
+    customInputError: { borderColor: c.danger },
+    buttonRow:     { flexDirection: 'row', gap: spacing.md },
+    button:        { flex: 1, paddingVertical: spacing.md, borderRadius: radius.lg, alignItems: 'center', minHeight: rs(52) },
+    discardButton: { backgroundColor: c.cardAlt },
+    confirmButton: { backgroundColor: c.accent },
+    discardText:   { color: c.textMuted, fontWeight: '600', fontSize: fontSize.base },
+    confirmText:   { color: c.accentText, fontWeight: '600', fontSize: fontSize.base },
+  });
+}

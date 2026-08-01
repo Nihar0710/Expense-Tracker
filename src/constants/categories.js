@@ -10,6 +10,37 @@ export const CATEGORIES = [
   { name: 'Other', icon: 'ellipsis-horizontal', color: '#6B7280' },
 ];
 
+// Colors cycled through when the user creates a custom category
+export const CUSTOM_CATEGORY_COLORS = [
+  '#F59E0B', '#14B8A6', '#6366F1', '#F43F5E', '#84CC16',
+  '#06B6D4', '#A855F7', '#EAB308', '#0891B2', '#D946EF',
+];
+
+/**
+ * Returns the full merged list: built-in CATEGORIES + user's custom ones.
+ * "Other" is always kept at the end.
+ */
+export function buildCategoryList(customCategories = []) {
+  const builtinWithoutOther = CATEGORIES.filter((c) => c.name !== 'Other');
+  const custom = customCategories.map((c) => ({
+    name:  c.name,
+    icon:  c.icon || 'pricetag',
+    color: c.color,
+  }));
+  const other = CATEGORIES.find((c) => c.name === 'Other');
+  return [...builtinWithoutOther, ...custom, other];
+}
+
+/**
+ * Pick a color for a new custom category by cycling through the palette,
+ * avoiding colors already used by existing custom categories.
+ */
+export function pickCustomCategoryColor(existingCustomCategories = []) {
+  const usedColors = new Set(existingCustomCategories.map((c) => c.color));
+  const unused = CUSTOM_CATEGORY_COLORS.find((col) => !usedColors.has(col));
+  return unused ?? CUSTOM_CATEGORY_COLORS[existingCustomCategories.length % CUSTOM_CATEGORY_COLORS.length];
+}
+
 // Very rough keyword matching so a payee name like "Swiggy" or "Uber"
 // can auto-suggest a category. Users can always override it manually.
 const KEYWORD_MAP = {
@@ -33,6 +64,7 @@ export function suggestCategory(payeeName = '') {
   return 'Other';
 }
 
-export function getCategoryMeta(name) {
-  return CATEGORIES.find((c) => c.name === name) || CATEGORIES[CATEGORIES.length - 1];
+export function getCategoryMeta(name, customCategories = []) {
+  const all = buildCategoryList(customCategories);
+  return all.find((c) => c.name === name) || CATEGORIES[CATEGORIES.length - 1];
 }

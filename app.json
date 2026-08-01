@@ -27,6 +27,12 @@
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan UPI QR codes."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to scan UPI QR codes from images."
+        }
+      ],
       "expo-font"
     ]
   }

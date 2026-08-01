@@ -1,36 +1,31 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  TouchableOpacity,
-  SafeAreaView,
-  Linking,
-  Alert,
+  View, Text, TextInput, StyleSheet, TouchableOpacity,
+  Linking, Alert, ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildUpiUri, isValidUpiId } from '../utils/upi';
 import { useWallet } from '../context/WalletContext';
+import { useTheme } from '../context/ThemeContext';
 import { useAppReturnListener } from '../hooks/useAppReturnListener';
 import ConfirmPaymentSheet from '../components/ConfirmPaymentSheet';
+import { spacing, fontSize, radius, rs } from '../utils/layout';
 
 export default function PayScreen({ route, navigation }) {
   const params = route.params || {};
   const { createPendingPayment, confirmPayment, discardPayment, pending } = useWallet();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
-  const [upiId, setUpiId] = useState(params.upiId || '');
+  const [upiId, setUpiId]         = useState(params.upiId || '');
   const [payeeName, setPayeeName] = useState(params.payeeName || '');
-  const [amount, setAmount] = useState(params.amount ? String(params.amount) : '');
-  const [note, setNote] = useState(params.note || '');
-  const [sheetVisible, setSheetVisible] = useState(false);
-  const [activeTransaction, setActiveTransaction] = useState(null);
+  const [amount, setAmount]       = useState(params.amount ? String(params.amount) : '');
+  const [note, setNote]           = useState(params.note || '');
+  const [sheetVisible, setSheet]  = useState(false);
+  const [activeTx, setActiveTx]   = useState(null);
 
   const handleAppReturn = useCallback(async () => {
-    // Grab the most recent pending transaction and ask for confirmation.
-    if (pending.length > 0) {
-      setActiveTransaction(pending[0]);
-      setSheetVisible(true);
-    }
+    if (pending.length > 0) { setActiveTx(pending[0]); setSheet(true); }
   }, [pending]);
 
   const { armWatch } = useAppReturnListener(handleAppReturn);
@@ -44,19 +39,14 @@ export default function PayScreen({ route, navigation }) {
       Alert.alert('Enter an amount', 'Please enter how much you want to pay.');
       return;
     }
-
-    // Log it as pending BEFORE we hand off, so we never lose track of it
-    // even if the app-return detection fails.
     await createPendingPayment({ amount: Number(amount), payeeName, upiId, note });
-
     const uri = buildUpiUri({ payeeAddress: upiId, payeeName, amount, note });
     armWatch();
-
     const canOpen = await Linking.canOpenURL(uri);
     if (!canOpen) {
       Alert.alert(
         'No UPI app found',
-        'Install GPay, PhonePe, Paytm, or another UPI app to complete this payment. The payment has been saved as pending — you can confirm or discard it from Transactions.'
+        'Install GPay, PhonePe, Paytm, or another UPI app. The payment has been saved as pending.'
       );
       return;
     }
@@ -65,86 +55,111 @@ export default function PayScreen({ route, navigation }) {
 
   const handleConfirm = async (id, category) => {
     await confirmPayment(id, category);
-    setSheetVisible(false);
-    setActiveTransaction(null);
+    setSheet(false); setActiveTx(null);
     navigation.navigate('Tabs', { screen: 'Home' });
   };
 
   const handleDiscard = async (id) => {
     await discardPayment(id);
-    setSheetVisible(false);
-    setActiveTransaction(null);
+    setSheet(false); setActiveTx(null);
   };
 
+  const s = makeStyles(colors, insets);
+
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.label}>Pay to (UPI ID)</Text>
-      <TextInput
-        style={styles.input}
-        value={upiId}
-        onChangeText={setUpiId}
-        placeholder="name@bank"
-        autoCapitalize="none"
-      />
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={rs(90)}
+    >
+      <ScrollView
+        contentContainerStyle={s.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={s.label}>Pay to (UPI ID)</Text>
+        <TextInput
+          style={s.input}
+          value={upiId}
+          onChangeText={setUpiId}
+          placeholder="name@bank"
+          placeholderTextColor={colors.textHint}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="next"
+        />
 
-      <Text style={styles.label}>Payee name (optional)</Text>
-      <TextInput
-        style={styles.input}
-        value={payeeName}
-        onChangeText={setPayeeName}
-        placeholder="e.g. Ramesh Kirana Store"
-      />
+        <Text style={s.label}>Payee name (optional)</Text>
+        <TextInput
+          style={s.input}
+          value={payeeName}
+          onChangeText={setPayeeName}
+          placeholder="e.g. Ramesh Kirana Store"
+          placeholderTextColor={colors.textHint}
+          returnKeyType="next"
+        />
 
-      <Text style={styles.label}>Amount</Text>
-      <TextInput
-        style={[styles.input, styles.amountInput]}
-        value={amount}
-        onChangeText={setAmount}
-        placeholder="0.00"
-        keyboardType="decimal-pad"
-      />
+        <Text style={s.label}>Amount (₹)</Text>
+        <TextInput
+          style={[s.input, s.amountInput]}
+          value={amount}
+          onChangeText={setAmount}
+          placeholder="0.00"
+          placeholderTextColor={colors.textHint}
+          keyboardType="decimal-pad"
+          returnKeyType="next"
+        />
 
-      <Text style={styles.label}>Note (optional)</Text>
-      <TextInput style={styles.input} value={note} onChangeText={setNote} placeholder="What's this for?" />
+        <Text style={s.label}>Note (optional)</Text>
+        <TextInput
+          style={s.input}
+          value={note}
+          onChangeText={setNote}
+          placeholder="What's this for?"
+          placeholderTextColor={colors.textHint}
+          returnKeyType="done"
+        />
 
-      <TouchableOpacity style={styles.payButton} onPress={handlePay}>
-        <Text style={styles.payButtonText}>Pay ₹{amount || '0'}</Text>
-      </TouchableOpacity>
+        <TouchableOpacity style={s.payButton} onPress={handlePay} activeOpacity={0.8}>
+          <Text style={s.payButtonText}>Pay ₹{amount || '0'}</Text>
+        </TouchableOpacity>
 
-      <Text style={styles.hint}>
-        You'll be redirected to your UPI app to complete the payment, then asked to confirm it here.
-      </Text>
+        <Text style={s.hint}>
+          You'll be redirected to your UPI app to complete the payment, then asked to confirm it here.
+        </Text>
+      </ScrollView>
 
       <ConfirmPaymentSheet
         visible={sheetVisible}
-        transaction={activeTransaction}
+        transaction={activeTx}
         onConfirm={handleConfirm}
         onDiscard={handleDiscard}
       />
-    </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', padding: 20 },
-  label: { fontSize: 13, fontWeight: '600', color: '#374151', marginTop: 16, marginBottom: 6 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: '#111827',
-  },
-  amountInput: { fontSize: 24, fontWeight: '700' },
-  payButton: {
-    backgroundColor: '#111827',
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 28,
-  },
-  payButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  hint: { fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 14, lineHeight: 18 },
-});
+function makeStyles(c, insets) {
+  return StyleSheet.create({
+    scroll:        {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+      paddingBottom: Math.max(spacing.xxl, insets.bottom + spacing.lg),
+    },
+    label:         { fontSize: fontSize.sm, fontWeight: '600', color: c.textMuted, marginTop: spacing.lg, marginBottom: spacing.xs },
+    input:         {
+      borderWidth: 1, borderColor: c.border, borderRadius: radius.md,
+      paddingHorizontal: spacing.md, paddingVertical: spacing.md,
+      fontSize: fontSize.base, color: c.text, backgroundColor: c.card,
+      minHeight: rs(50),
+    },
+    amountInput:   { fontSize: rs(24), fontWeight: '700', minHeight: rs(56) },
+    payButton:     {
+      backgroundColor: c.accent, borderRadius: radius.lg,
+      paddingVertical: spacing.lg, alignItems: 'center', marginTop: spacing.xxl,
+      minHeight: rs(54),
+    },
+    payButtonText: { color: c.accentText, fontSize: fontSize.lg, fontWeight: '700' },
+    hint:          { fontSize: fontSize.xs, color: c.textHint, textAlign: 'center', marginTop: spacing.md, lineHeight: fontSize.xs * 1.6 },
+  });
+}
