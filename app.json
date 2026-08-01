@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "expense-wallet-app",
+    "slug": "expense-wallet-app",
+    "version": "1.0.0",
+    "sdkVersion": "54.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "expensewallet",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourname.expensewallet"
+    },
+    "android": {
+      "package": "com.yourname.expensewallet",
+      "permissions": [
+        "CAMERA"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan UPI QR codes."
+        }
+      ],
+      "expo-font"
+    ]
+  }
+}
