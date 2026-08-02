@@ -5,35 +5,55 @@
     "version": "1.0.0",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "scheme": "expensewallet",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourname.expensewallet"
+      "bundleIdentifier": "com.yourname.expensewallet",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Allow $(PRODUCT_NAME) to use Face ID to lock the app.",
+        "LSApplicationQueriesSchemes": [
+          "upi",
+          "gpay",
+          "phonepe",
+          "paytm",
+          "bhim",
+          "credpay",
+          "amazonpay",
+          "freecharge",
+          "mobikwik",
+          "airtel"
+        ]
+      }
     },
     "android": {
       "package": "com.yourname.expensewallet",
       "permissions": [
-        "CAMERA"
+        "CAMERA",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
       ]
     },
     "plugins": [
       [
         "expo-camera",
-        {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan UPI QR codes."
-        }
+        { "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan UPI QR codes." }
       ],
       [
         "expo-image-picker",
-        {
-          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to scan UPI QR codes from images."
-        }
+        { "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to scan QR codes and attach receipts." }
       ],
-      "expo-font"
+      [
+        "expo-local-authentication",
+        { "faceIDPermission": "Allow $(PRODUCT_NAME) to use Face ID to unlock the app." }
+      ],
+      "expo-notifications",
+      "expo-font",
+      "expo-secure-store"
     ]
   }
 }
