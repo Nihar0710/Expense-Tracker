@@ -104,9 +104,12 @@ export default function SettingsScreen({ navigation }) {
         {/* ── Finance ────────────────────────────────────── */}
         <Text style={s.sectionLabel}>Finance</Text>
         <View style={s.card}>
-          <SettingsRow icon="trophy-outline" label="Savings goals" onPress={() => navigation.navigate('Goals')} />
-          <SettingsRow icon="people-outline" label="Split expenses" onPress={() => navigation.navigate('Split')} />
-          <SettingsRow icon="bar-chart-outline" label="Monthly report" onPress={() => navigation.navigate('Report')} last />
+          <SettingsRow icon="trophy-outline"          label="Savings goals"       onPress={() => navigation.navigate('Goals')} />
+          <SettingsRow icon="people-outline"          label="Split expenses"       onPress={() => navigation.navigate('Split')} />
+          <SettingsRow icon="bar-chart-outline"       label="Monthly report"       onPress={() => navigation.navigate('Report')} />
+          <SettingsRow icon="bulb-outline"            label="Insights & patterns"  onPress={() => navigation.navigate('Insights')} />
+          <SettingsRow icon="handshake-outline"       label="IOU tracker"          onPress={() => navigation.navigate('Iou')} />
+          <SettingsRow icon="card-outline"            label="Monthly recap card"   onPress={() => navigation.navigate('Recap')} last />
         </View>
 
         {/* ── About ──────────────────────────────────────── */}

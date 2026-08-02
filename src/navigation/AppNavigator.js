@@ -20,6 +20,10 @@ import ReportScreen       from '../screens/ReportScreen';
 import BillsScreen        from '../screens/BillsScreen';
 import GoalsScreen        from '../screens/GoalsScreen';
 import SplitScreen        from '../screens/SplitScreen';
+import InsightsScreen     from '../screens/InsightsScreen';
+import IouScreen          from '../screens/IouScreen';
+import RecapScreen        from '../screens/RecapScreen';
+import CashEntryScreen    from '../screens/CashEntryScreen';
 import { PinSetupScreen } from '../screens/LockScreen';
 
 const Tab   = createBottomTabNavigator();
@@ -31,7 +35,6 @@ const TAB_PADDING_TOP    = rs(8);
 function Tabs() {
   const { colors } = useTheme();
   const insets     = useSafeAreaInsets();
-
   const bottomInset      = insets.bottom;
   const tabBarHeight     = TAB_CONTENT_HEIGHT + bottomInset;
   const tabBarPaddingBot = bottomInset + rs(4);
@@ -95,22 +98,25 @@ export default function AppNavigator() {
   return (
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator>
-        <Stack.Screen name="Tabs"      component={Tabs}            options={{ headerShown: false }} />
-        <Stack.Screen name="Scan"      component={ScanScreen}      options={{ title: 'Scan QR',              ...h }} />
-        <Stack.Screen name="Pay"       component={PayScreen}       options={{ title: 'Pay',                  ...h }} />
-        <Stack.Screen name="Receive"   component={ReceiveScreen}   options={{ title: 'Receive / Request',    ...h }} />
-        <Stack.Screen name="Recurring" component={RecurringScreen} options={{ title: 'Recurring Payments',  ...h }} />
-        <Stack.Screen name="Report"    component={ReportScreen}    options={{ title: 'Monthly Report',      ...h }} />
-        <Stack.Screen name="Bills"     component={BillsScreen}     options={{ title: 'Bill Reminders',      ...h }} />
-        <Stack.Screen name="Goals"     component={GoalsScreen}     options={{ title: 'Savings Goals',       ...h }} />
-        <Stack.Screen name="Split"     component={SplitScreen}     options={{ title: 'Split Expenses',      ...h }} />
-        <Stack.Screen name="PinSetup"  component={PinSetupWrapper} options={{ title: 'Security / PIN Lock', ...h }} />
+        <Stack.Screen name="Tabs"       component={Tabs}             options={{ headerShown: false }} />
+        <Stack.Screen name="Scan"       component={ScanScreen}       options={{ title: 'Scan QR',              ...h }} />
+        <Stack.Screen name="Pay"        component={PayScreen}        options={{ title: 'Pay',                  ...h }} />
+        <Stack.Screen name="Receive"    component={ReceiveScreen}    options={{ title: 'Receive / Request',    ...h }} />
+        <Stack.Screen name="CashEntry"  component={CashEntryScreen}  options={{ title: 'Log Cash Expense',     ...h }} />
+        <Stack.Screen name="Recurring"  component={RecurringScreen}  options={{ title: 'Recurring Payments',   ...h }} />
+        <Stack.Screen name="Report"     component={ReportScreen}     options={{ title: 'Monthly Report',       ...h }} />
+        <Stack.Screen name="Bills"      component={BillsScreen}      options={{ title: 'Bill Reminders',       ...h }} />
+        <Stack.Screen name="Goals"      component={GoalsScreen}      options={{ title: 'Savings Goals',        ...h }} />
+        <Stack.Screen name="Split"      component={SplitScreen}      options={{ title: 'Split Expenses',       ...h }} />
+        <Stack.Screen name="Insights"   component={InsightsScreen}   options={{ title: 'Insights',             ...h }} />
+        <Stack.Screen name="Iou"        component={IouScreen}        options={{ title: 'IOU Tracker',          ...h }} />
+        <Stack.Screen name="Recap"      component={RecapScreen}      options={{ title: 'Monthly Recap Card',   ...h }} />
+        <Stack.Screen name="PinSetup"   component={PinSetupWrapper}  options={{ title: 'Security / PIN Lock',  ...h }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
 }
 
-// Wrapper so PinSetupScreen can navigate back
 function PinSetupWrapper({ navigation }) {
   return <PinSetupScreen onDone={() => navigation.goBack()} onCancel={() => navigation.goBack()} />;
 }

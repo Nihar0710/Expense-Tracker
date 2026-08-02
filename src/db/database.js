@@ -135,6 +135,20 @@ export async function initDatabase() {
     `ALTER TABLE favorites ADD COLUMN last_used_at TEXT`,
     `ALTER TABLE favorites ADD COLUMN use_count INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE transactions ADD COLUMN receipt_uri TEXT`,
+    // Feature 1: Cash mode
+    `ALTER TABLE transactions ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'upi'`,
+    // Feature 2: Payee notes
+    `ALTER TABLE favorites ADD COLUMN notes TEXT`,
+    // Feature 9: IOU tracker
+    `CREATE TABLE IF NOT EXISTS ious (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_name TEXT NOT NULL,
+      amount REAL NOT NULL,
+      direction TEXT NOT NULL CHECK (direction IN ('owed_to_me','i_owe')),
+      note TEXT,
+      settled INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    )`,
   ];
   for (const sql of migrations) {
     try { await database.execAsync(sql); } catch (_) {}
@@ -174,12 +188,12 @@ export async function discardTransaction(id) {
   await database.runAsync(`DELETE FROM transactions WHERE id = ?`, [id]);
 }
 
-export async function addManualTransaction({ type, amount, category, note, receiptUri, tags }) {
+export async function addManualTransaction({ type, amount, category, note, receiptUri, tags, paymentMethod }) {
   const database = await getDb();
   const result = await database.runAsync(
-    `INSERT INTO transactions (type, amount, category, note, status, receipt_uri, created_at)
-     VALUES (?, ?, ?, ?, 'confirmed', ?, ?)`,
-    [type, amount, category, note ?? null, receiptUri ?? null, new Date().toISOString()]
+    `INSERT INTO transactions (type, amount, category, note, status, receipt_uri, payment_method, created_at)
+     VALUES (?, ?, ?, ?, 'confirmed', ?, ?, ?)`,
+    [type, amount, category, note ?? null, receiptUri ?? null, paymentMethod ?? 'upi', new Date().toISOString()]
   );
   if (tags && tags.length > 0) {
     await setTransactionTags(result.lastInsertRowId, tags);
@@ -233,7 +247,7 @@ export async function getCategoryBreakdown() {
   );
 }
 
-export async function searchTransactions({ search = '', status = 'all', category = 'all', tagId = null } = {}) {
+export async function searchTransactions({ search = '', status = 'all', category = 'all', tagId = null, paymentMethod = 'all' } = {}) {
   const database = await getDb();
   const conditions = [];
   const params = [];
@@ -245,6 +259,7 @@ export async function searchTransactions({ search = '', status = 'all', category
   }
   if (status !== 'all') { conditions.push(`t.status = ?`); params.push(status); }
   if (category !== 'all') { conditions.push(`t.category = ?`); params.push(category); }
+  if (paymentMethod !== 'all') { conditions.push(`t.payment_method = ?`); params.push(paymentMethod); }
   if (tagId) {
     conditions.push(`EXISTS (SELECT 1 FROM transaction_tags tt WHERE tt.transaction_id = t.id AND tt.tag_id = ?)`);
     params.push(tagId);
@@ -674,4 +689,233 @@ export async function setSetting(key, value) {
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     [key, value]
   );
+}
+
+// ─── Feature 2: Payee notes ───────────────────────────────────────────────────
+
+export async function updateFavoriteNote(upiId, note) {
+  const database = await getDb();
+  await database.runAsync(
+    `UPDATE favorites SET notes = ? WHERE upi_id = ?`,
+    [note ?? null, upiId]
+  );
+}
+
+export async function getFavoriteByUpiId(upiId) {
+  const database = await getDb();
+  return database.getFirstAsync(`SELECT * FROM favorites WHERE upi_id = ?`, [upiId]);
+}
+
+// ─── Feature 3: No-spend streaks ─────────────────────────────────────────────
+
+/**
+ * Returns { current, longest } no-spend streaks (days with no confirmed expenses).
+ * Pure JS calculation from the transactions array passed in.
+ */
+export function computeNoSpendStreaks(transactions) {
+  // Build a set of YYYY-MM-DD dates that have at least one confirmed expense
+  const spendDays = new Set();
+  for (const tx of transactions) {
+    if (tx.type === 'expense' && tx.status === 'confirmed') {
+      spendDays.add(tx.created_at.slice(0, 10));
+    }
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Current streak: count back from today/yesterday
+  let current = 0;
+  const cursor = new Date(today);
+  while (true) {
+    const d = cursor.toISOString().slice(0, 10);
+    if (spendDays.has(d)) break;
+    current++;
+    cursor.setDate(cursor.getDate() - 1);
+    // Stop if we go back more than 365 days
+    if (current > 365) break;
+  }
+
+  // Longest streak: find the longest consecutive run of no-spend days
+  // in the last 90 days
+  let longest = current;
+  let run = 0;
+  const check = new Date(today);
+  check.setDate(check.getDate() - 1); // start from yesterday
+  for (let i = 0; i < 90; i++) {
+    const d = check.toISOString().slice(0, 10);
+    if (!spendDays.has(d)) {
+      run++;
+      if (run > longest) longest = run;
+    } else {
+      run = 0;
+    }
+    check.setDate(check.getDate() - 1);
+  }
+
+  return { current, longest };
+}
+
+// ─── Feature 5: Spending patterns ────────────────────────────────────────────
+
+/**
+ * Returns spending pattern insights from confirmed expense transactions.
+ * { weekendAvg, weekdayAvg, weekendPct, impulseCategory, topHour }
+ */
+export function computeSpendingPatterns(transactions) {
+  const expenses = transactions.filter((t) => t.type === 'expense' && t.status === 'confirmed');
+  if (expenses.length === 0) return null;
+
+  // Weekend vs weekday
+  let weekendTotal = 0, weekendCount = 0;
+  let weekdayTotal = 0, weekdayCount = 0;
+  const catCount = {};
+  const hourBuckets = { morning: 0, afternoon: 0, evening: 0, night: 0 };
+
+  for (const tx of expenses) {
+    const d = new Date(tx.created_at);
+    const dow = d.getDay(); // 0=Sun, 6=Sat
+    if (dow === 0 || dow === 6) {
+      weekendTotal += tx.amount; weekendCount++;
+    } else {
+      weekdayTotal += tx.amount; weekdayCount++;
+    }
+    catCount[tx.category] = (catCount[tx.category] || 0) + 1;
+    const h = d.getHours();
+    if (h >= 6 && h < 12) hourBuckets.morning++;
+    else if (h >= 12 && h < 17) hourBuckets.afternoon++;
+    else if (h >= 17 && h < 21) hourBuckets.evening++;
+    else hourBuckets.night++;
+  }
+
+  const weekendAvg = weekendCount > 0 ? weekendTotal / weekendCount : 0;
+  const weekdayAvg = weekdayCount > 0 ? weekdayTotal / weekdayCount : 0;
+  const weekendPct = weekdayAvg > 0
+    ? Math.round(((weekendAvg - weekdayAvg) / weekdayAvg) * 100)
+    : 0;
+
+  const impulseCategory = Object.entries(catCount)
+    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const impulseCount = catCount[impulseCategory] ?? 0;
+
+  const topHour = Object.entries(hourBuckets).sort((a, b) => b[1] - a[1])[0][0];
+
+  return { weekendAvg, weekdayAvg, weekendPct, impulseCategory, impulseCount, topHour };
+}
+
+// ─── Feature 6: Emergency fund ────────────────────────────────────────────────
+
+/**
+ * Returns average monthly expense over the last 3 complete months.
+ */
+export async function getAvgMonthlyExpense() {
+  const database = await getDb();
+  const now = new Date();
+  const results = [];
+  for (let i = 1; i <= 3; i++) {
+    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const end   = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+    const row = await database.getFirstAsync(
+      `SELECT SUM(amount) as total FROM transactions
+       WHERE type='expense' AND status='confirmed'
+         AND created_at >= ? AND created_at < ?`,
+      [start.toISOString(), end.toISOString()]
+    );
+    results.push(row?.total ?? 0);
+  }
+  return results.reduce((s, v) => s + v, 0) / 3;
+}
+
+// ─── Feature 7: Subscription detection ───────────────────────────────────────
+
+/**
+ * Groups confirmed expense transactions by payee/amount, detects recurring
+ * patterns (~monthly or ~weekly), returns detected subscriptions.
+ */
+export async function detectSubscriptions() {
+  const database = await getDb();
+  const rows = await database.getAllAsync(
+    `SELECT payee_name, upi_id, amount, created_at FROM transactions
+     WHERE type='expense' AND status='confirmed'
+       AND (payee_name IS NOT NULL OR upi_id IS NOT NULL)
+     ORDER BY created_at ASC`
+  );
+
+  // Group by key = (payee_name or upi_id) + rounded amount (±5%)
+  const groups = {};
+  for (const tx of rows) {
+    const key = `${tx.payee_name || tx.upi_id}__${Math.round(tx.amount / 10) * 10}`;
+    if (!groups[key]) groups[key] = { name: tx.payee_name || tx.upi_id, amounts: [], dates: [] };
+    groups[key].amounts.push(tx.amount);
+    groups[key].dates.push(new Date(tx.created_at));
+  }
+
+  const subscriptions = [];
+  for (const [, g] of Object.entries(groups)) {
+    if (g.dates.length < 2) continue;
+    // Check if gaps between occurrences are roughly 7 or 30 days
+    const gaps = [];
+    for (let i = 1; i < g.dates.length; i++) {
+      gaps.push((g.dates[i] - g.dates[i - 1]) / (1000 * 60 * 60 * 24));
+    }
+    const avgGap = gaps.reduce((s, v) => s + v, 0) / gaps.length;
+    let frequency = null;
+    if (avgGap >= 6 && avgGap <= 9) frequency = 'weekly';
+    else if (avgGap >= 25 && avgGap <= 35) frequency = 'monthly';
+    if (!frequency) continue;
+
+    const avgAmount = g.amounts.reduce((s, v) => s + v, 0) / g.amounts.length;
+    const lastAmount = g.amounts[g.amounts.length - 1];
+    const priceChanged = Math.abs(lastAmount - avgAmount) / avgAmount > 0.1;
+    const monthlyEquivalent = frequency === 'weekly' ? avgAmount * 4.33 : avgAmount;
+
+    subscriptions.push({
+      name: g.name,
+      frequency,
+      avgAmount,
+      lastAmount,
+      monthlyEquivalent,
+      occurrences: g.dates.length,
+      priceChanged,
+    });
+  }
+
+  return subscriptions.sort((a, b) => b.monthlyEquivalent - a.monthlyEquivalent);
+}
+
+// ─── Feature 9: IOU tracker ───────────────────────────────────────────────────
+
+export async function getIous() {
+  const database = await getDb();
+  return database.getAllAsync(`SELECT * FROM ious ORDER BY settled ASC, created_at DESC`);
+}
+
+export async function addIou({ personName, amount, direction, note }) {
+  const database = await getDb();
+  const result = await database.runAsync(
+    `INSERT INTO ious (person_name, amount, direction, note, settled, created_at)
+     VALUES (?, ?, ?, ?, 0, ?)`,
+    [personName, amount, direction, note ?? null, new Date().toISOString()]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function settleIou(id, logTransaction) {
+  const database = await getDb();
+  if (logTransaction) {
+    const iou = await database.getFirstAsync(`SELECT * FROM ious WHERE id = ?`, [id]);
+    if (iou) {
+      await database.runAsync(
+        `INSERT INTO transactions (type, amount, category, note, status, created_at)
+         VALUES ('expense', ?, 'Other', ?, 'confirmed', ?)`,
+        [iou.amount, `IOU settled: ${iou.person_name}`, new Date().toISOString()]
+      );
+    }
+  }
+  await database.runAsync(`UPDATE ious SET settled = 1 WHERE id = ?`, [id]);
+}
+
+export async function deleteIou(id) {
+  const database = await getDb();
+  await database.runAsync(`DELETE FROM ious WHERE id = ?`, [id]);
 }

@@ -22,18 +22,19 @@ export default function TransactionsScreen({ route }) {
 
   const allCategories = buildCategoryList(customCategories);
 
-  const [search, setSearch]               = useState('');
-  const [statusFilter, setStatusFilter]   = useState(route?.params?.filterStatus || 'all');
+  const [search, setSearch]                 = useState('');
+  const [statusFilter, setStatusFilter]     = useState(route?.params?.filterStatus || 'all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [tagFilter, setTagFilter]         = useState(null); // tag id or null
-  const [results, setResults]             = useState([]);
-  const [addModalVisible, setAddModal]    = useState(false);
-  const [sheetTx, setSheetTx]             = useState(null);
+  const [tagFilter, setTagFilter]           = useState(null);
+  const [methodFilter, setMethodFilter]     = useState('all');
+  const [results, setResults]               = useState([]);
+  const [addModalVisible, setAddModal]      = useState(false);
+  const [sheetTx, setSheetTx]               = useState(null);
   const debounceRef = useRef(null);
 
   const runSearch = useCallback(
-    async (q, status, category, tagId) => {
-      const rows = await searchTx({ search: q, status, category, tagId });
+    async (q, status, category, tagId, paymentMethod) => {
+      const rows = await searchTx({ search: q, status, category, tagId, paymentMethod });
       setResults(rows);
     },
     [searchTx]
@@ -42,10 +43,10 @@ export default function TransactionsScreen({ route }) {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      runSearch(search, statusFilter, categoryFilter, tagFilter);
+      runSearch(search, statusFilter, categoryFilter, tagFilter, methodFilter);
     }, 300);
     return () => clearTimeout(debounceRef.current);
-  }, [search, statusFilter, categoryFilter, tagFilter, runSearch]);
+  }, [search, statusFilter, categoryFilter, tagFilter, methodFilter, runSearch]);
 
   const handleExport = async () => {
     if (results.length === 0) { Alert.alert('Nothing to export', 'No transactions match the current filters.'); return; }
@@ -89,7 +90,7 @@ export default function TransactionsScreen({ route }) {
         )}
       </View>
 
-      {/* Filter chips — status + category + tags */}
+      {/* Filter chips — status + payment method + category + tags */}
       <ScrollView
         horizontal showsHorizontalScrollIndicator={false}
         style={s.filterScroll} contentContainerStyle={s.filterContent}
@@ -100,6 +101,12 @@ export default function TransactionsScreen({ route }) {
           </TouchableOpacity>
         ))}
         <View style={s.chipDivider} />
+        {[{ v: 'all', label: 'All' }, { v: 'upi', label: '📲 UPI' }, { v: 'cash', label: '💵 Cash' }].map(({ v, label }) => (
+          <TouchableOpacity key={v} style={[s.chip, methodFilter === v && s.chipActive]} onPress={() => setMethodFilter(v)}>
+            <Text style={[s.chipText, methodFilter === v && s.chipTextActive]}>{label}</Text>
+          </TouchableOpacity>
+        ))}
+        <View style={s.chipDivider} />
         {['all', ...allCategories.map((c) => c.name)].map((cat) => (
           <TouchableOpacity key={cat} style={[s.chip, categoryFilter === cat && s.chipActive]} onPress={() => setCategoryFilter(cat)}>
             <Text style={[s.chipText, categoryFilter === cat && s.chipTextActive]}>{cat === 'all' ? 'All categories' : cat}</Text>
@@ -107,11 +114,7 @@ export default function TransactionsScreen({ route }) {
         ))}
         {allTags.length > 0 && <View style={s.chipDivider} />}
         {allTags.map((tag) => (
-          <TouchableOpacity
-            key={`tag-${tag.id}`}
-            style={[s.chip, tagFilter === tag.id && s.chipTagActive]}
-            onPress={() => setTagFilter(tagFilter === tag.id ? null : tag.id)}
-          >
+          <TouchableOpacity key={`tag-${tag.id}`} style={[s.chip, tagFilter === tag.id && s.chipTagActive]} onPress={() => setTagFilter(tagFilter === tag.id ? null : tag.id)}>
             <Text style={[s.chipText, tagFilter === tag.id && s.chipTextActive]}>#{tag.name}</Text>
           </TouchableOpacity>
         ))}
@@ -139,12 +142,12 @@ export default function TransactionsScreen({ route }) {
         onConfirm={async (id, cat, receiptUri) => {
           await confirmPayment(id, cat, receiptUri);
           setSheetTx(null);
-          runSearch(search, statusFilter, categoryFilter, tagFilter);
+          runSearch(search, statusFilter, categoryFilter, tagFilter, methodFilter);
         }}
         onDiscard={async (id) => {
           await discardPayment(id);
           setSheetTx(null);
-          runSearch(search, statusFilter, categoryFilter, tagFilter);
+          runSearch(search, statusFilter, categoryFilter, tagFilter, methodFilter);
         }}
       />
 
@@ -157,7 +160,7 @@ export default function TransactionsScreen({ route }) {
         onSave={async (data) => {
           await addManual(data);
           setAddModal(false);
-          runSearch(search, statusFilter, categoryFilter, tagFilter);
+          runSearch(search, statusFilter, categoryFilter, tagFilter, methodFilter);
         }}
       />
     </View>

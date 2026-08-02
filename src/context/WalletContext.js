@@ -14,6 +14,8 @@ import {
   getFavorites,
   markFavoriteUsed,
   deleteFavorite,
+  updateFavoriteNote,
+  getFavoriteByUpiId,
   getRecurringRules,
   addRecurringRule,
   toggleRecurringRule,
@@ -24,6 +26,8 @@ import {
   deleteCustomCategory as dbDeleteCustomCategory,
   getAllTags,
   setTransactionTags,
+  computeNoSpendStreaks,
+  computeSpendingPatterns,
 } from '../db/database';
 import { pickCustomCategoryColor } from '../constants/categories';
 
@@ -39,6 +43,9 @@ export function WalletProvider({ children }) {
   const [recurring, setRecurring]         = useState([]);
   const [customCategories, setCustomCats] = useState([]);
   const [allTags, setAllTags]             = useState([]);
+  // Computed on refresh — no extra DB call needed
+  const [streaks, setStreaks]             = useState({ current: 0, longest: 0 });
+  const [patterns, setPatterns]           = useState(null);
 
   // ── Core refresh ────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
@@ -60,6 +67,9 @@ export function WalletProvider({ children }) {
     setRecurring(rec);
     setCustomCats(customCats);
     setAllTags(tags);
+    // Derive streak and pattern data from loaded transactions
+    setStreaks(computeNoSpendStreaks(tx));
+    setPatterns(computeSpendingPatterns(tx));
   }, []);
 
   useEffect(() => {
@@ -128,6 +138,16 @@ export function WalletProvider({ children }) {
     []
   );
 
+  const updatePayeeNote = useCallback(async (upiId, note) => {
+    await updateFavoriteNote(upiId, note);
+    setFavorites(await getFavorites());
+  }, []);
+
+  const getPayeeNote = useCallback(async (upiId) => {
+    const fav = await getFavoriteByUpiId(upiId);
+    return fav?.notes ?? null;
+  }, []);
+
   // ── Custom categories ─────────────────────────────────────────────────────
   const addCustomCategory = useCallback(async (name) => {
     const trimmed = name.trim();
@@ -167,13 +187,14 @@ export function WalletProvider({ children }) {
         ready,
         transactions, pending, summary, breakdown,
         favorites, recurring, customCategories, allTags,
+        streaks, patterns,
         refresh,
         // transactions
         createPendingPayment, confirmPayment, discardPayment, addManual, searchTx,
         // tags
         saveTxTags,
-        // favorites
-        removeFavorite,
+        // favorites / payee notes
+        removeFavorite, updatePayeeNote, getPayeeNote,
         // custom categories
         addCustomCategory, removeCustomCategory,
         // recurring

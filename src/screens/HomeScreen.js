@@ -7,9 +7,8 @@ import { useTheme } from '../context/ThemeContext';
 import { getCategoryMeta } from '../constants/categories';
 import FavoritesRow from '../components/FavoritesRow';
 import { spacing, fontSize, radius, useTabBarHeight, rs, ms } from '../utils/layout';
-
 export default function HomeScreen({ navigation }) {
-  const { transactions, pending, summary, favorites, customCategories } = useWallet();
+  const { transactions, pending, summary, favorites, customCategories, streaks } = useWallet();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const bottomPad = useTabBarHeight();
@@ -51,31 +50,33 @@ export default function HomeScreen({ navigation }) {
 
             {/* Action buttons */}
             <View style={s.actionsRow}>
-              <TouchableOpacity
-                style={s.actionButton}
-                onPress={() => navigation.navigate('Scan')}
-                activeOpacity={0.8}
-              >
+              <TouchableOpacity style={s.actionButton} onPress={() => navigation.navigate('Scan')} activeOpacity={0.8}>
                 <Ionicons name="qr-code" size={rs(20)} color={colors.accentText} />
                 <Text style={s.actionText}>Scan & Pay</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.actionButton, s.secondaryAction]}
-                onPress={() => navigation.navigate('Pay', {})}
-                activeOpacity={0.8}
-              >
+              <TouchableOpacity style={[s.actionButton, s.secondaryAction]} onPress={() => navigation.navigate('Pay', {})} activeOpacity={0.8}>
                 <Ionicons name="send" size={rs(18)} color={colors.accent} />
                 <Text style={[s.actionText, { color: colors.accent }]}>Pay UPI ID</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.actionButton, s.secondaryAction]}
-                onPress={() => navigation.navigate('Receive')}
-                activeOpacity={0.8}
-              >
+              <TouchableOpacity style={[s.actionButton, s.secondaryAction]} onPress={() => navigation.navigate('Receive')} activeOpacity={0.8}>
                 <Ionicons name="qr-code-outline" size={rs(18)} color={colors.accent} />
                 <Text style={[s.actionText, { color: colors.accent }]}>Receive</Text>
               </TouchableOpacity>
+              <TouchableOpacity style={[s.actionButton, s.secondaryAction]} onPress={() => navigation.navigate('CashEntry')} activeOpacity={0.8}>
+                <Ionicons name="cash-outline" size={rs(18)} color={colors.accent} />
+                <Text style={[s.actionText, { color: colors.accent }]}>Cash</Text>
+              </TouchableOpacity>
             </View>
+
+            {/* No-spend streak badge */}
+            {streaks.current > 0 && (
+              <View style={s.streakBadge}>
+                <Text style={s.streakEmoji}>🔥</Text>
+                <Text style={s.streakText}>
+                  {streaks.current} day no-spend streak!{streaks.longest > streaks.current ? ` Best: ${streaks.longest}d` : ''}
+                </Text>
+              </View>
+            )}
 
             {/* Pending banner */}
             {pending.length > 0 && (
@@ -190,6 +191,9 @@ function makeStyles(c, insets = {}) {
     rowTitle:        { fontSize: fontSize.md, fontWeight: '600', color: c.text },
     rowSubtitle:     { fontSize: fontSize.xs, color: c.textFaint, marginTop: 2 },
     rowAmount:       { fontSize: fontSize.md, fontWeight: '700', flexShrink: 0 },
+    streakBadge:     { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: c.warningBg, padding: spacing.sm, borderRadius: radius.md, marginTop: spacing.md },
+    streakEmoji:     { fontSize: fontSize.lg },
+    streakText:      { fontSize: fontSize.sm, fontWeight: '600', color: c.warningText, flex: 1 },
     emptyText:       { textAlign: 'center', color: c.textHint, marginTop: spacing.xxl * 2, paddingHorizontal: spacing.xl },
   });
 }
