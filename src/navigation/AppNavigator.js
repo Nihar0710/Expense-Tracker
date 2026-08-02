@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -11,27 +11,30 @@ import { rs } from '../utils/layout';
 import HomeScreen         from '../screens/HomeScreen';
 import ScanScreen         from '../screens/ScanScreen';
 import PayScreen          from '../screens/PayScreen';
+import ReceiveScreen      from '../screens/ReceiveScreen';
 import TransactionsScreen from '../screens/TransactionsScreen';
 import BudgetScreen       from '../screens/BudgetScreen';
 import SettingsScreen     from '../screens/SettingsScreen';
 import RecurringScreen    from '../screens/RecurringScreen';
+import ReportScreen       from '../screens/ReportScreen';
+import BillsScreen        from '../screens/BillsScreen';
+import GoalsScreen        from '../screens/GoalsScreen';
+import SplitScreen        from '../screens/SplitScreen';
+import { PinSetupScreen } from '../screens/LockScreen';
 
 const Tab   = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-// Tab bar content height (above the system nav bar)
 const TAB_CONTENT_HEIGHT = rs(56);
 const TAB_PADDING_TOP    = rs(8);
 
 function Tabs() {
-  const { colors }  = useTheme();
-  const insets      = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const insets     = useSafeAreaInsets();
 
-  // Bottom inset = height of Android gesture bar / 3-button nav bar, or iOS home indicator.
-  // We add this on top of our desired content height so the tab icons always sit above it.
   const bottomInset      = insets.bottom;
   const tabBarHeight     = TAB_CONTENT_HEIGHT + bottomInset;
-  const tabBarPaddingBot = bottomInset + rs(4); // a bit of breathing room above the bar
+  const tabBarPaddingBot = bottomInset + rs(4);
 
   return (
     <Tab.Navigator
@@ -40,19 +43,15 @@ function Tabs() {
         tabBarActiveTintColor:   colors.accent,
         tabBarInactiveTintColor: colors.textHint,
         tabBarStyle: {
-          backgroundColor:  colors.card,
-          borderTopColor:   colors.border,
-          borderTopWidth:   StyleSheet.hairlineWidth,
-          height:           tabBarHeight,
-          paddingBottom:    tabBarPaddingBot,
-          paddingTop:       TAB_PADDING_TOP,
-          // Disable React Navigation's own safe-area handling — we do it manually
-          // so it works consistently on both gesture-nav and 3-button Android.
-          paddingLeft:      insets.left,
-          paddingRight:     insets.right,
+          backgroundColor: colors.card,
+          borderTopColor:  colors.border,
+          borderTopWidth:  StyleSheet.hairlineWidth,
+          height:          tabBarHeight,
+          paddingBottom:   tabBarPaddingBot,
+          paddingTop:      TAB_PADDING_TOP,
+          paddingLeft:     insets.left,
+          paddingRight:    insets.right,
         },
-        // Tell React Navigation NOT to add its own extra bottom inset —
-        // we've already baked it into paddingBottom above.
         tabBarHideOnKeyboard: true,
         tabBarIcon: ({ color, size }) => {
           const icons = {
@@ -87,7 +86,7 @@ export default function AppNavigator() {
     },
   };
 
-  const headerStyle = {
+  const h = {
     headerStyle:      { backgroundColor: colors.card },
     headerTintColor:  colors.text,
     headerTitleStyle: { color: colors.text },
@@ -97,10 +96,21 @@ export default function AppNavigator() {
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator>
         <Stack.Screen name="Tabs"      component={Tabs}            options={{ headerShown: false }} />
-        <Stack.Screen name="Scan"      component={ScanScreen}      options={{ title: 'Scan QR', ...headerStyle }} />
-        <Stack.Screen name="Pay"       component={PayScreen}       options={{ title: 'Pay',     ...headerStyle }} />
-        <Stack.Screen name="Recurring" component={RecurringScreen} options={{ title: 'Recurring Payments', ...headerStyle }} />
+        <Stack.Screen name="Scan"      component={ScanScreen}      options={{ title: 'Scan QR',              ...h }} />
+        <Stack.Screen name="Pay"       component={PayScreen}       options={{ title: 'Pay',                  ...h }} />
+        <Stack.Screen name="Receive"   component={ReceiveScreen}   options={{ title: 'Receive / Request',    ...h }} />
+        <Stack.Screen name="Recurring" component={RecurringScreen} options={{ title: 'Recurring Payments',  ...h }} />
+        <Stack.Screen name="Report"    component={ReportScreen}    options={{ title: 'Monthly Report',      ...h }} />
+        <Stack.Screen name="Bills"     component={BillsScreen}     options={{ title: 'Bill Reminders',      ...h }} />
+        <Stack.Screen name="Goals"     component={GoalsScreen}     options={{ title: 'Savings Goals',       ...h }} />
+        <Stack.Screen name="Split"     component={SplitScreen}     options={{ title: 'Split Expenses',      ...h }} />
+        <Stack.Screen name="PinSetup"  component={PinSetupWrapper} options={{ title: 'Security / PIN Lock', ...h }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
+}
+
+// Wrapper so PinSetupScreen can navigate back
+function PinSetupWrapper({ navigation }) {
+  return <PinSetupScreen onDone={() => navigation.goBack()} onCancel={() => navigation.goBack()} />;
 }

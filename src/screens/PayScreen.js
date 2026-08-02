@@ -39,28 +39,60 @@ export default function PayScreen({ route, navigation }) {
       Alert.alert('Enter an amount', 'Please enter how much you want to pay.');
       return;
     }
+
     await createPendingPayment({ amount: Number(amount), payeeName, upiId, note });
-    const uri = buildUpiUri({ payeeAddress: upiId, payeeName, amount, note });
+    if (global.setInPaymentFlow) global.setInPaymentFlow(true);
     armWatch();
-    const canOpen = await Linking.canOpenURL(uri);
-    if (!canOpen) {
-      Alert.alert(
-        'No UPI app found',
-        'Install GPay, PhonePe, Paytm, or another UPI app. The payment has been saved as pending.'
-      );
-      return;
+
+    const uri = buildUpiUri({ payeeAddress: upiId, payeeName, amount, note });
+
+    // On iOS, Linking.canOpenURL('upi://') always returns false unless the
+    // scheme is whitelisted AND a matching app is installed. Even with
+    // whitelisting, Expo Go sandboxes this. So we attempt openURL directly
+    // and catch the error — this is the correct approach for UPI on iOS.
+    try {
+      await Linking.openURL(uri);
+    } catch {
+      // upi:// failed — try app-specific deep links used on iOS
+      const iosSchemes = [
+        `gpay://upi/pay?${uri.split('?')[1]}`,
+        `phonepe://pay?${uri.split('?')[1]}`,
+        `paytmmp://pay?${uri.split('?')[1]}`,
+      ];
+
+      let opened = false;
+      for (const scheme of iosSchemes) {
+        try {
+          const canOpen = await Linking.canOpenURL(scheme);
+          if (canOpen) {
+            await Linking.openURL(scheme);
+            opened = true;
+            break;
+          }
+        } catch { /* try next */ }
+      }
+
+      if (!opened) {
+        if (global.setInPaymentFlow) global.setInPaymentFlow(false);
+        Alert.alert(
+          'No UPI app found',
+          'Install GPay, PhonePe, or Paytm from the App Store to make UPI payments. Your payment has been saved as pending.',
+          [{ text: 'OK' }]
+        );
+      }
     }
-    Linking.openURL(uri);
   };
 
   const handleConfirm = async (id, category) => {
     await confirmPayment(id, category);
+    if (global.setInPaymentFlow) global.setInPaymentFlow(false);
     setSheet(false); setActiveTx(null);
     navigation.navigate('Tabs', { screen: 'Home' });
   };
 
   const handleDiscard = async (id) => {
     await discardPayment(id);
+    if (global.setInPaymentFlow) global.setInPaymentFlow(false);
     setSheet(false); setActiveTx(null);
   };
 

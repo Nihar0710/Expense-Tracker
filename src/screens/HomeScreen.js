@@ -67,6 +67,14 @@ export default function HomeScreen({ navigation }) {
                 <Ionicons name="send" size={rs(18)} color={colors.accent} />
                 <Text style={[s.actionText, { color: colors.accent }]}>Pay UPI ID</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.actionButton, s.secondaryAction]}
+                onPress={() => navigation.navigate('Receive')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="qr-code-outline" size={rs(18)} color={colors.accent} />
+                <Text style={[s.actionText, { color: colors.accent }]}>Receive</Text>
+              </TouchableOpacity>
             </View>
 
             {/* Pending banner */}

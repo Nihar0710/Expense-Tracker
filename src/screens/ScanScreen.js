@@ -9,11 +9,11 @@ import {
   Alert,
 } from 'react-native';
 import { CameraView, useCameraPermissions, scanFromURLAsync } from 'expo-camera';
-import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { parseUpiUri } from '../utils/upi';
 import { rs, spacing, fontSize, radius } from '../utils/layout';
+import { pickImageFromGallery } from '../utils/imagePicker';
 
 export default function ScanScreen({ navigation }) {
   const { colors } = useTheme();
@@ -32,36 +32,18 @@ export default function ScanScreen({ navigation }) {
   const handlePickImage = async () => {
     if (scanning) return;
 
-    // Ask for media-library permission via image picker
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert(
-        'Permission needed',
-        'Allow access to your photos to scan QR codes from images.'
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: false,
-      quality: 1,
-    });
-
-    if (result.canceled || !result.assets?.length) return;
+    // pickImageFromGallery handles permission request + 'limited' access on iOS
+    const uri = await pickImageFromGallery({ quality: 1, allowsEditing: false });
+    if (!uri) return;
 
     setScanning(true);
     try {
-      const uri      = result.assets[0].uri;
-      const scanned  = await scanFromURLAsync(uri, ['qr']);
-
-      if (!scanned || scanned.length === 0) {
+      const results = await scanFromURLAsync(uri, ['qr']);
+      if (!results || results.length === 0) {
         Alert.alert('No QR found', 'No QR code was detected in this image. Try a clearer photo.');
         return;
       }
-
-      // Use the first QR code found in the image
-      navigateIfValid(scanned[0].data);
+      navigateIfValid(results[0].data);
     } catch (e) {
       Alert.alert('Scan failed', 'Could not read the image. Please try another photo.');
     } finally {

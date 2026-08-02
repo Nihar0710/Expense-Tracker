@@ -7,6 +7,7 @@ import {
   getCategoryBreakdown,
   insertPendingTransaction,
   confirmTransaction,
+  confirmTransactionWithReceipt,
   discardTransaction,
   addManualTransaction,
   searchTransactions,
@@ -21,24 +22,27 @@ import {
   getCustomCategories,
   addCustomCategory as dbAddCustomCategory,
   deleteCustomCategory as dbDeleteCustomCategory,
+  getAllTags,
+  setTransactionTags,
 } from '../db/database';
 import { pickCustomCategoryColor } from '../constants/categories';
 
 const WalletContext = createContext(null);
 
 export function WalletProvider({ children }) {
-  const [ready, setReady]                   = useState(false);
-  const [transactions, setTx]               = useState([]);
-  const [pending, setPending]               = useState([]);
-  const [summary, setSummary]               = useState({ income: 0, expense: 0 });
-  const [breakdown, setBreakdown]           = useState([]);
-  const [favorites, setFavorites]           = useState([]);
-  const [recurring, setRecurring]           = useState([]);
-  const [customCategories, setCustomCats]   = useState([]);
+  const [ready, setReady]                 = useState(false);
+  const [transactions, setTx]             = useState([]);
+  const [pending, setPending]             = useState([]);
+  const [summary, setSummary]             = useState({ income: 0, expense: 0 });
+  const [breakdown, setBreakdown]         = useState([]);
+  const [favorites, setFavorites]         = useState([]);
+  const [recurring, setRecurring]         = useState([]);
+  const [customCategories, setCustomCats] = useState([]);
+  const [allTags, setAllTags]             = useState([]);
 
   // ── Core refresh ────────────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
-    const [tx, pend, sum, brk, favs, rec, customCats] = await Promise.all([
+    const [tx, pend, sum, brk, favs, rec, customCats, tags] = await Promise.all([
       getAllTransactions(),
       getPendingTransactions(),
       getMonthSummary(),
@@ -46,6 +50,7 @@ export function WalletProvider({ children }) {
       getFavorites(),
       getRecurringRules(),
       getCustomCategories(),
+      getAllTags(),
     ]);
     setTx(tx);
     setPending(pend);
@@ -54,6 +59,7 @@ export function WalletProvider({ children }) {
     setFavorites(favs);
     setRecurring(rec);
     setCustomCats(customCats);
+    setAllTags(tags);
   }, []);
 
   useEffect(() => {
@@ -74,7 +80,6 @@ export function WalletProvider({ children }) {
   const createPendingPayment = useCallback(
     async ({ amount, payeeName, upiId, note }) => {
       const id = await insertPendingTransaction({ amount, payeeName, upiId, note });
-      // Auto-upsert favorite when a UPI payment is initiated
       if (upiId) await markFavoriteUsed(upiId, payeeName);
       await refresh();
       return id;
@@ -83,32 +88,34 @@ export function WalletProvider({ children }) {
   );
 
   const confirmPayment = useCallback(
-    async (id, category) => {
-      await confirmTransaction(id, category);
+    async (id, category, receiptUri) => {
+      if (receiptUri) await confirmTransactionWithReceipt(id, category, receiptUri);
+      else await confirmTransaction(id, category);
       await refresh();
     },
     [refresh]
   );
 
   const discardPayment = useCallback(
-    async (id) => {
-      await discardTransaction(id);
-      await refresh();
-    },
+    async (id) => { await discardTransaction(id); await refresh(); },
     [refresh]
   );
 
   const addManual = useCallback(
-    async (data) => {
-      await addManualTransaction(data);
-      await refresh();
-    },
+    async (data) => { await addManualTransaction(data); await refresh(); },
     [refresh]
   );
 
-  /** Returns filtered rows from the DB (used by TransactionsScreen). */
   const searchTx = useCallback(
     async (opts) => searchTransactions(opts),
+    []
+  );
+
+  const saveTxTags = useCallback(
+    async (txId, tagNames) => {
+      await setTransactionTags(txId, tagNames);
+      setAllTags(await getAllTags());
+    },
     []
   );
 
@@ -122,91 +129,55 @@ export function WalletProvider({ children }) {
   );
 
   // ── Custom categories ─────────────────────────────────────────────────────
-  const addCustomCategory = useCallback(
-    async (name) => {
-      const trimmed = name.trim();
-      if (!trimmed) return;
-      // Always read the latest list from DB — avoids stale-closure issues
-      // when multiple categories are added in the same session.
-      const latest = await getCustomCategories();
-      const exists = latest.some(
-        (c) => c.name.toLowerCase() === trimmed.toLowerCase()
-      );
-      if (exists) {
-        // Already exists — just refresh state so UI is up to date
-        setCustomCats(latest);
-        return;
-      }
-      const color = pickCustomCategoryColor(latest);
-      await dbAddCustomCategory({ name: trimmed, color });
-      const updated = await getCustomCategories();
-      setCustomCats(updated);
-    },
-    [] // no dependency on stale state — reads DB directly every time
-  );
+  const addCustomCategory = useCallback(async (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const latest = await getCustomCategories();
+    const exists = latest.some((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+    if (exists) { setCustomCats(latest); return; }
+    const color = pickCustomCategoryColor(latest);
+    await dbAddCustomCategory({ name: trimmed, color });
+    setCustomCats(await getCustomCategories());
+  }, []);
 
-  const removeCustomCategory = useCallback(
-    async (id) => {
-      await dbDeleteCustomCategory(id);
-      setCustomCats((prev) => prev.filter((c) => c.id !== id));
-    },
-    []
-  );
+  const removeCustomCategory = useCallback(async (id) => {
+    await dbDeleteCustomCategory(id);
+    setCustomCats((prev) => prev.filter((c) => c.id !== id));
+  }, []);
 
   // ── Recurring ─────────────────────────────────────────────────────────────
-  const addRecurring = useCallback(
-    async (rule) => {
-      await addRecurringRule(rule);
-      setRecurring(await getRecurringRules());
-    },
-    []
-  );
+  const addRecurring = useCallback(async (rule) => {
+    await addRecurringRule(rule);
+    setRecurring(await getRecurringRules());
+  }, []);
 
-  const toggleRecurring = useCallback(
-    async (id, active) => {
-      await toggleRecurringRule(id, active);
-      setRecurring((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, active: active ? 1 : 0 } : r))
-      );
-    },
-    []
-  );
+  const toggleRecurring = useCallback(async (id, active) => {
+    await toggleRecurringRule(id, active);
+    setRecurring((prev) => prev.map((r) => (r.id === id ? { ...r, active: active ? 1 : 0 } : r)));
+  }, []);
 
-  const removeRecurring = useCallback(
-    async (id) => {
-      await deleteRecurringRule(id);
-      setRecurring((prev) => prev.filter((r) => r.id !== id));
-    },
-    []
-  );
+  const removeRecurring = useCallback(async (id) => {
+    await deleteRecurringRule(id);
+    setRecurring((prev) => prev.filter((r) => r.id !== id));
+  }, []);
 
   return (
     <WalletContext.Provider
       value={{
         ready,
-        transactions,
-        pending,
-        summary,
-        breakdown,
-        favorites,
-        recurring,
-        customCategories,
+        transactions, pending, summary, breakdown,
+        favorites, recurring, customCategories, allTags,
         refresh,
         // transactions
-        createPendingPayment,
-        confirmPayment,
-        discardPayment,
-        addManual,
-        searchTx,
+        createPendingPayment, confirmPayment, discardPayment, addManual, searchTx,
+        // tags
+        saveTxTags,
         // favorites
         removeFavorite,
-        // recurring
-        addRecurring,
-        toggleRecurring,
-        removeRecurring,
         // custom categories
-        addCustomCategory,
-        removeCustomCategory,
+        addCustomCategory, removeCustomCategory,
+        // recurring
+        addRecurring, toggleRecurring, removeRecurring,
       }}
     >
       {children}
